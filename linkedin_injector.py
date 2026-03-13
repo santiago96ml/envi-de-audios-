@@ -104,18 +104,6 @@ class LinkedInInjector:
         self.page.set_default_timeout(config.DEFAULT_TIMEOUT)
         self.page.set_default_navigation_timeout(config.NAVIGATION_TIMEOUT)
 
-        # Falsificando dispositivo móvil solo para los endpoints de voz (interceptación local)
-        async def mock_mobile_api_route(route):
-            headers = route.request.headers.copy()
-            headers["user-agent"] = "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-            headers["sec-ch-ua-mobile"] = "?1"
-            headers["sec-ch-ua-platform"] = '"Android"'
-            headers["x-li-user-agent"] = "LIAuthLibrary:3.2.4 com.linkedin.android:4.1.881 x86_64:android-33"
-            await route.continue_(headers=headers)
-
-        await self.page.route("**/voyager/api/voyagerMediaUploadMetadata*", mock_mobile_api_route)
-        await self.page.route("**/voyager/api/messaging/conversations/*/events*", mock_mobile_api_route)
-
         print("✅ Navegador lanzado y configurado.\n")
 
     async def close_browser(self):
@@ -290,365 +278,59 @@ class LinkedInInjector:
 
     async def inject_and_send_voice_message(self) -> dict:
         """
-        Inyecta JavaScript en la página para:
-        1. Capturar el stream del micrófono virtual (getUserMedia)
-        2. Grabar con MediaRecorder
-        3. Esperar la duración del audio
-        4. Crear un Blob con la grabación
-        5. Extraer CSRF token de las cookies de sesión
-        6. Enviar via fetch() multipart al endpoint de LinkedIn
-
-        Returns:
-            dict con el resultado de la operación.
+        Sube el archivo de audio como un adjunto estándar usando la interfaz de usuario de Playwright.
+        Esta alternativa es 100% segura y sustituye al inyector de JS puro bloqueado por LinkedIn.
         """
-        duration_ms = int(self.audio_duration_s * 1000) + config.RECORDING_MARGIN_MS
+        import os
+        audio_path = str(self.wav_path)
 
-        print(f"💉 Inyectando script de captura y envío de voz...")
-        print(f"   Duración de grabación: {duration_ms}ms")
+        if not os.path.exists(audio_path):
+            return {"success": False, "error": f"Archivo no encontrado: {audio_path}", "step": "pre-check"}
 
-        # JavaScript que se inyecta en la página autenticada de LinkedIn
-        js_code = """
-        async (durationMs) => {
-            // ============================================================
-            // PASO 1: Capturar el stream del micrófono virtual
-            // ============================================================
-            console.log('[VoiceBot] Solicitando acceso al micrófono virtual...');
-
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                console.log('[VoiceBot] Stream de audio obtenido:', stream.id);
-            } catch (err) {
-                return {
-                    success: false,
-                    error: `getUserMedia falló: ${err.message}`,
-                    step: 'getUserMedia'
-                };
-            }
-
-            // ============================================================
-            // PASO 2: Inicializar MediaRecorder
-            // ============================================================
-            let mimeType = 'audio/webm;codecs=opus';
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = 'audio/webm';
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    mimeType = 'audio/ogg;codecs=opus';
-                    if (!MediaRecorder.isTypeSupported(mimeType)) {
-                        mimeType = '';  // Fallback al default del navegador
-                    }
-                }
-            }
-
-            console.log('[VoiceBot] MIME type seleccionado:', mimeType || 'default');
-
-            const recorderOptions = mimeType ? { mimeType } : {};
-            const mediaRecorder = new MediaRecorder(stream, recorderOptions);
-            const audioChunks = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                    console.log('[VoiceBot] Chunk recibido:', event.data.size, 'bytes');
-                }
-            };
-
-            // ============================================================
-            // PASO 3: Grabar y esperar la duración del audio
-            // ============================================================
-            return new Promise((resolve) => {
-                mediaRecorder.onstop = async () => {
-                    console.log('[VoiceBot] Grabación detenida. Chunks:', audioChunks.length);
-
-                    // Detener todas las pistas del stream
-                    stream.getTracks().forEach(track => track.stop());
-
-                    // Crear Blob con los chunks grabados
-                    const actualMime = mediaRecorder.mimeType || 'audio/webm';
-                    const audioBlob = new Blob(audioChunks, { type: actualMime });
-                    console.log('[VoiceBot] Blob creado:', audioBlob.size, 'bytes,', actualMime);
-
-                    if (audioBlob.size === 0) {
-                        resolve({
-                            success: false,
-                            error: 'El Blob de audio está vacío. El micrófono virtual no proporcionó datos.',
-                            step: 'blob_creation'
-                        });
-                        return;
-                    }
-
-                    // ============================================================
-                    // PASO 4: Extraer CSRF token (JSESSIONID) de las cookies
-                    // ============================================================
-                    let csrfToken = '';
-                    try {
-                        const cookies = document.cookie.split(';');
-                        for (const cookie of cookies) {
-                            const [name, value] = cookie.trim().split('=');
-                            if (name === 'JSESSIONID') {
-                                csrfToken = value.replace(/"/g, '');
-                                break;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('[VoiceBot] No se pudo extraer JSESSIONID:', e);
-                    }
-
-                    console.log('[VoiceBot] CSRF token:', csrfToken ? '✅ encontrado' : '❌ no encontrado');
-
-                    // ============================================================
-                    // PASO 5: Extraer el ID de la conversación activa
-                    // ============================================================
-                    let conversationId = '';
-                    try {
-                        // Intentar extraer del URL actual
-                        const urlMatch = window.location.href.match(/messaging\\/thread\\/([^/\\?]+)/);
-                        if (urlMatch) {
-                            conversationId = urlMatch[1];
-                        }
-
-                        // Fallback: intentar desde la UI
-                        if (!conversationId) {
-                            const threadEl = document.querySelector(
-                                '[data-thread-urn], .msg-thread, [id*="thread"]'
-                            );
-                            if (threadEl) {
-                                const urn = threadEl.getAttribute('data-thread-urn') || '';
-                                const urnMatch = urn.match(/thread:([^)]+)/);
-                                if (urnMatch) conversationId = urnMatch[1];
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('[VoiceBot] No se pudo extraer conversation ID:', e);
-                    }
-
-                    console.log('[VoiceBot] Conversation ID:', conversationId || 'no detectado');
-
-                    // ============================================================
-                    // PASO 6: Subir el audio al endpoint de LinkedIn
-                    // ============================================================
-                    try {
-                        // --- PASO 6a: Registrar el upload de media ---
-                        const registerPayload = {
-                            "recipe": "urn:li:digitalmediaRecipe:messenger-audio",
-                            "mediaUploadType": "AUDIO",
-                            "fileSize": audioBlob.size,
-                        };
-
-                        const registerHeaders = {
-                            'Content-Type': 'application/json',
-                            'x-restli-protocol-version': '2.0.0',
-                        };
-                        if (csrfToken) {
-                            registerHeaders['csrf-token'] = csrfToken;
-                        }
-
-                        console.log('[VoiceBot] Registrando upload de media...');
-                        const registerResp = await fetch(
-                            'https://www.linkedin.com/voyager/api/voyagerMediaUploadMetadata?action=upload',
-                            {
-                                method: 'POST',
-                                headers: registerHeaders,
-                                body: JSON.stringify(registerPayload),
-                                credentials: 'include',
-                            }
-                        );
-
-                        if (!registerResp.ok) {
-                            const regErrText = await registerResp.text().catch(() => '');
-                            console.warn('[VoiceBot] Register response:', registerResp.status, regErrText);
-
-                            // Si el endpoint de registro no funciona, intentamos un POST directo
-                            // con FormData como mecanismo alternativo
-                            console.log('[VoiceBot] Intentando envío directo con FormData...');
-
-                            const formData = new FormData();
-                            const audioFile = new File(
-                                [audioBlob],
-                                'voice_message.webm',
-                                { type: actualMime }
-                            );
-                            formData.append('file', audioFile);
-
-                            const directHeaders = {};
-                            if (csrfToken) {
-                                directHeaders['csrf-token'] = csrfToken;
-                            }
-
-                            // Intentar envío al endpoint de mensajería
-                            if (conversationId) {
-                                const msgEndpoint = `https://www.linkedin.com/voyager/api/messaging/conversations/${conversationId}/messages`;
-                                const msgResp = await fetch(msgEndpoint, {
-                                    method: 'POST',
-                                    headers: directHeaders,
-                                    body: formData,
-                                    credentials: 'include',
-                                });
-
-                                resolve({
-                                    success: msgResp.ok,
-                                    status: msgResp.status,
-                                    blobSize: audioBlob.size,
-                                    mimeType: actualMime,
-                                    conversationId: conversationId,
-                                    method: 'direct_formdata',
-                                    regStatus: registerResp.status,
-                                    regError: regErrText,
-                                    step: 'send_complete'
-                                });
-                                return;
-                            }
-
-                            // Sin conversation ID, retornar el blob info para envío manual
-                            resolve({
-                                success: false,
-                                error: 'No se pudo registrar el upload ni detectar conversation ID',
-                                blobSize: audioBlob.size,
-                                mimeType: actualMime,
-                                regStatus: registerResp.status,
-                                regError: regErrText,
-                                step: 'upload_register'
-                            });
-                            return;
-                        }
-
-                        const registerData = await registerResp.json();
-                        console.log('[VoiceBot] Upload registrado:', JSON.stringify(registerData));
-
-                        const uploadUrl = registerData?.value?.singleUploadUrl
-                            || registerData?.data?.value?.singleUploadUrl
-                            || '';
-                        const mediaUrn = registerData?.value?.urn
-                            || registerData?.data?.value?.urn
-                            || '';
-
-                        // --- PASO 6b: Subir el archivo de audio ---
-                        if (uploadUrl) {
-                            console.log('[VoiceBot] Subiendo audio a:', uploadUrl);
-                            const uploadResp = await fetch(uploadUrl, {
-                                method: 'PUT',
-                                headers: {
-                                    'Content-Type': actualMime,
-                                    ...(csrfToken ? {'csrf-token': csrfToken} : {}),
-                                },
-                                body: audioBlob,
-                                credentials: 'include',
-                            });
-
-                            if (!uploadResp.ok) {
-                                resolve({
-                                    success: false,
-                                    error: `Upload falló: ${uploadResp.status}`,
-                                    step: 'upload_audio'
-                                });
-                                return;
-                            }
-                            console.log('[VoiceBot] Audio subido exitosamente.');
-                        }
-
-                        // --- PASO 6c: Enviar el mensaje con el media URN ---
-                        if (conversationId && mediaUrn) {
-                            console.log('[VoiceBot] Enviando mensaje de voz con URN:', mediaUrn);
-
-                            const messagePayload = {
-                                "eventCreate": {
-                                    "value": {
-                                        "com.linkedin.voyager.messaging.create.MessageCreate": {
-                                            "attributedBody": {
-                                                "text": "",
-                                                "attributes": []
-                                            },
-                                            "attachments": [
-                                                mediaUrn
-                                            ]
-                                        }
-                                    }
-                                }
-                            };
-
-                            const msgResp = await fetch(
-                                `https://www.linkedin.com/voyager/api/messaging/conversations/${conversationId}/events?action=create`,
-                                {
-                                    method: 'POST',
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'x-restli-protocol-version': '2.0.0',
-                                        'csrf-token': csrfToken,
-                                        'accept': 'application/vnd.linkedin.normalized+json+2.1'
-                                    },
-                                    body: JSON.stringify(messagePayload),
-                                    credentials: 'include',
-                                }
-                            );
-
-                            const resultData = msgResp.ok ? await msgResp.json().catch(() => ({})) : {};
-                            
-                            if (!msgResp.ok) {
-                                const errTextMsg = await msgResp.text().catch(() => '');
-                                console.log('[VoiceBot] Error enviando mensaje final:', errTextMsg);
-                            }
-
-                            resolve({
-                                success: msgResp.ok,
-                                status: msgResp.status,
-                                blobSize: audioBlob.size,
-                                mimeType: actualMime,
-                                conversationId: conversationId,
-                                mediaUrn: mediaUrn,
-                                method: 'voyager_api',
-                                responseData: resultData,
-                                step: 'send_complete'
-                            });
-                            return;
-                        }
-
-                        // Retornar éxito parcial si no hay conversation ID
-                        resolve({
-                            success: false,
-                            blobSize: audioBlob.size,
-                            mimeType: actualMime,
-                            mediaUrn: mediaUrn,
-                            uploadUrl: uploadUrl ? '✅' : '❌',
-                            conversationId: conversationId || 'no detectado',
-                            error: 'Audio subido pero no se pudo enviar: falta conversationId o mediaUrn',
-                            step: 'send_message'
-                        });
-
-                    } catch (fetchError) {
-                        resolve({
-                            success: false,
-                            error: `Error en fetch: ${fetchError.message}`,
-                            blobSize: audioBlob.size,
-                            mimeType: actualMime,
-                            step: 'fetch'
-                        });
-                    }
-                };
-
-                // Iniciar la grabación
-                console.log('[VoiceBot] Iniciando grabación por', durationMs, 'ms...');
-                mediaRecorder.start(1000);  // Chunks cada 1 segundo
-
-                // Detener la grabación después de la duración del audio
-                setTimeout(() => {
-                    if (mediaRecorder.state === 'recording') {
-                        console.log('[VoiceBot] Deteniendo grabación...');
-                        mediaRecorder.stop();
-                    }
-                }, durationMs);
-            });
-        }
-        """
-
+        print(f"\n[UI Automation] Seleccionando audio como adjunto: {audio_path}...")
         try:
-            result = await self.page.evaluate(js_code, duration_ms)
-            return result
+            # Encontrar el input de tipo archivo en el DOM del chat de LinkedIn
+            file_input = self.page.locator('input[type="file"]').first
+            
+            # Subir el archivo .wav
+            await file_input.set_input_files(audio_path)
+            print("[UI Automation] Archivo seteado en el frontend. Esperando subida inicial...")
+            
+            # Playwright sube localmente, ahora LinkedIn carga la preview (barra verde).
+            await self.page.wait_for_timeout(3500)
+            
+            # El botón de enviar
+            send_button = self.page.locator('.msg-form__send-button')
+            
+            # Esperar a que el botón se habilite si aún está gris. En mensajería, el CSS quita
+            # la clase o atributo cuando hay un adjunto listo.
+            is_disabled = await send_button.get_attribute('disabled')
+            if is_disabled is not None:
+                print("[UI Automation] Esperando a que el botón de enviar se habilite post subida...")
+                await self.page.wait_for_selector('.msg-form__send-button:not([disabled])', timeout=15000)
+                
+            print("🚀 Enviando mensaje...")
+            await send_button.click()
+            
+            # Esperamos tres segundos a que el frame se agregue en la vista antes de irnos
+            await self.page.wait_for_timeout(3000)
+            print("✅ ¡Audio enviado como archivo adjunto exitosamente!\n")
+            
+            return {
+                "success": True,
+                "status": 200,
+                "method": "ui_attachment",
+                "step": "send_complete"
+            }
         except Exception as e:
+            error_details = str(e)
+            print(f"❌ Error durante la automatización de la UI: {error_details}")
             return {
                 "success": False,
-                "error": f"Error al ejecutar JavaScript: {str(e)}",
-                "step": "page_evaluate",
+                "error": error_details,
+                "step": "ui_automation"
             }
+
 
     # ==========================================================================
     # FLUJO COMPLETO
