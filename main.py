@@ -28,6 +28,7 @@ from audio_processor import (
     process_all_audio_files,
 )
 from linkedin_injector import LinkedInInjector
+from android_injector import AndroidVoiceInjector
 
 
 def print_banner():
@@ -78,7 +79,18 @@ def parse_args():
         help="Solo procesa y convierte los audios de la carpeta de origen.",
     )
 
-    return parser.parse_args()
+    parser.add_argument(
+        "--android",
+        action="store_true",
+        help="Usar emulador Android (BlueStacks) en lugar de Playwright Web."
+    )
+
+    args = parser.parse_args()
+    
+    # Inyectar configuración de modo
+    config.USE_ANDROID = args.android
+
+    return args
 
 
 def check_prerequisites():
@@ -179,18 +191,21 @@ async def run_send_voice(audio_path: str, recipient: str = None, conversation_ur
     duration = get_audio_duration_seconds(processed_wav)
 
     print("-" * 60)
-    print("PASO 2: Navegador y Envío")
+    print(f"PASO 2: Navegador y Envío ({'Android' if config.USE_ANDROID else 'Web'})")
     print("-" * 60)
 
-    injector = LinkedInInjector(
-        processed_wav_path=processed_wav,
-        audio_duration_seconds=duration,
-    )
-
-    result = await injector.run_full_flow(
-        recipient_name=recipient,
-        conversation_url=conversation_url,
-    )
+    if config.USE_ANDROID:
+        injector = AndroidVoiceInjector()
+        result = injector.send_voice_message(str(processed_wav))
+    else:
+        injector = LinkedInInjector(
+            processed_wav_path=processed_wav,
+            audio_duration_seconds=duration,
+        )
+        result = await injector.run_full_flow(
+            recipient_name=recipient,
+            conversation_url=conversation_url,
+        )
 
     print("-" * 60)
     print("RESUMEN FINAL")

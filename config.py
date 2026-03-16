@@ -86,12 +86,32 @@ AUDIO_CODEC = "pcm_s16le"   # PCM signed 16-bit little-endian
 AUDIO_FORMAT = "wav"
 
 # ==============================================================================
+# CONFIGURACIÓN DE ANDROID / BLUESTACKS
+# ==============================================================================
+
+# Serial ADB para conectar con BlueStacks (usualmente 5555 o 5565)
+ADB_SERIAL = "127.0.0.1:5555"
+
+# Nombre del dispositivo de audio virtual (VB-Audio Virtual Cable)
+# Se usará para buscar el índice dinámicamente en sounddevice
+# Nombre que aparece en sounddevice para el OUTPUT del cable virtual
+# (el PC reproduce aquí, BlueStacks graba de aquí como input)
+VIRTUAL_CABLE_NAME = "Altavoces (VB-Audio Virtual Cable)"
+
+# Retraso (s) tras presionar el botón de micro antes de empezar el audio
+# Evita cortes al inicio de la grabación en la App móvil
+PTT_DELAY = 0.5
+
+# ==============================================================================
 # CONFIGURACIÓN DEL MENSAJE DE VOZ
 # ==============================================================================
 
 # Margen extra (en ms) que se le da al MediaRecorder después de la duración
 # real del audio, para asegurar que la grabación se complete sin cortes
 RECORDING_MARGIN_MS = 500
+
+# Modo de ejecución (inyectado por main.py)
+USE_ANDROID = False
 
 # ==============================================================================
 # VALIDACIONES DE INICIO
