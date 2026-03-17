@@ -36,6 +36,7 @@ def send_voice():
 
     contact_name = data.get('contact')
     audio_file = data.get('audio') # Ejemplo: "audio_source/mensaje.wav"
+    linkedin_cookie = data.get('cookie') # Token li_at o JSON de cookies
     
     # Validaciones mínimas
     if not contact_name:
@@ -56,6 +57,10 @@ def send_voice():
             "--audio", audio_file,
             "--android"
         ]
+        
+        # Si se envió una cookie, la pasamos como argumento adicional
+        if linkedin_cookie:
+            process_cmd.extend(["--cookie", linkedin_cookie])
         
         # Nota: Si extendemos main.py para buscar contactos por nombre, 
         # añadiríamos "--search", contact_name aquí.

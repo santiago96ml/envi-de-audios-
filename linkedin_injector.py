@@ -20,14 +20,16 @@ import config
 class LinkedInInjector:
     """Controlador principal de Playwright para la inyección de voz en LinkedIn."""
 
-    def __init__(self, processed_wav_path: Path, audio_duration_seconds: float):
+    def __init__(self, processed_wav_path: Path, audio_duration_seconds: float, cookie: str = None):
         """
         Args:
             processed_wav_path: Ruta absoluta al WAV procesado (PCM 16-bit mono 16kHz).
             audio_duration_seconds: Duración del audio en segundos.
+            cookie: Cookie de sesión 'li_at' o JSON de cookies.
         """
         self.wav_path = Path(processed_wav_path).resolve()
         self.audio_duration_s = audio_duration_seconds
+        self.cookie = cookie
         self.playwright = None
         self.browser: Browser = None
         self.context: BrowserContext = None
@@ -100,6 +102,17 @@ class LinkedInInjector:
         )
 
         self.page = await self.context.new_page()
+        
+        # Inyectar la cookie si se proporcionó una
+        if self.cookie:
+            print(f"   🍪 Inyectando cookie li_at de acceso...")
+            await self.context.add_cookies([{
+                'name': 'li_at',
+                'value': self.cookie,
+                'domain': '.www.linkedin.com',
+                'path': '/',
+                'expires': int(time.time()) + 60*60*24*30 # 30 días
+            }])
         self.page.on("console", lambda msg: print(f"[Chromium] {msg.text}"))
         self.page.set_default_timeout(config.DEFAULT_TIMEOUT)
         self.page.set_default_navigation_timeout(config.NAVIGATION_TIMEOUT)
@@ -157,10 +170,10 @@ class LinkedInInjector:
         """
         print("🔐 Iniciando proceso de autenticación en LinkedIn...")
 
-        # Verificar si ya estamos logueados con la sesión restaurada
-        if config.SESSION_STATE_FILE.exists():
+        # Verificar si ya estamos logueados (ya sea por archivo o por cookie recién inyectada)
+        if config.SESSION_STATE_FILE.exists() or self.cookie:
             if await self.is_logged_in():
-                print("✅ Sesión restaurada con éxito. Ya estás autenticado.\n")
+                print("✅ Sesión restaurada con éxito (archivo o cookie). Ya estás autenticado.\n")
                 return
 
         # Navegar a la página de inicio de sesión
