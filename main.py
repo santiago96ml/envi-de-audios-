@@ -84,12 +84,6 @@ def parse_args():
         action="store_true",
         help="Usar emulador Android (BlueStacks) en lugar de Playwright Web."
     )
-    
-    parser.add_argument(
-        "--cookie",
-        type=str,
-        help="Valor de la cookie 'li_at' o JSON de sesión de LinkedIn."
-    )
 
     args = parser.parse_args()
     
@@ -177,7 +171,7 @@ async def run_login_only():
     return result
 
 
-async def run_send_voice(audio_path: str, recipient: str = None, conversation_url: str = None, cookie: str = None):
+async def run_send_voice(audio_path: str, recipient: str = None, conversation_url: str = None):
     """
     Flujo de envío: conversión -> autenticación -> navegación -> envío.
     """
@@ -207,7 +201,6 @@ async def run_send_voice(audio_path: str, recipient: str = None, conversation_ur
         injector = LinkedInInjector(
             processed_wav_path=processed_wav,
             audio_duration_seconds=duration,
-            cookie=cookie,
         )
         result = await injector.run_full_flow(
             recipient_name=recipient,
@@ -255,7 +248,6 @@ def main():
             audio_path=args.audio,
             recipient=args.recipient,
             conversation_url=args.conversation_url,
-            cookie=args.cookie,
         )
     )
 

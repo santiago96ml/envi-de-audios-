@@ -9,10 +9,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 app = Flask(__name__)
 
 # --- CONFIGURACIÓN DE SEGURIDAD ---
-# Cambia este token por uno muy largo y complejo. 
-# Solo las peticiones que incluyan este token en el Header 'X-API-KEY' serán procesadas.
-import secrets
-# Generar un token por defecto si no existe en el entorno
+# Usa siempre un token seguro en n8n (X-API-KEY)
 API_TOKEN = os.getenv("API_TOKEN", "stark_secure_token_2024_linkedin_bot")
 
 @app.route('/health', methods=['GET'])
@@ -36,7 +33,6 @@ def send_voice():
 
     contact_name = data.get('contact')
     audio_file = data.get('audio') # Ejemplo: "audio_source/mensaje.wav"
-    linkedin_cookie = data.get('cookie') # Token li_at o JSON de cookies
     
     # Validaciones mínimas
     if not contact_name:
@@ -57,13 +53,6 @@ def send_voice():
             "--audio", audio_file,
             "--android"
         ]
-        
-        # Si se envió una cookie, la pasamos como argumento adicional
-        if linkedin_cookie:
-            process_cmd.extend(["--cookie", linkedin_cookie])
-        
-        # Nota: Si extendemos main.py para buscar contactos por nombre, 
-        # añadiríamos "--search", contact_name aquí.
         
         result = subprocess.run(
             process_cmd,

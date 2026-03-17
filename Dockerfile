@@ -1,6 +1,9 @@
 FROM python:3.9-slim
 
-# Instalar dependencias adicionales del sistema (ADB, FFmpeg, etc.)
+# Instalar dependencias del sistema:
+# - FFmpeg: para procesar el audio
+# - ADB: para conectar con redroid
+# - PulseAudio / ALSA: para crear cables virtuales de audio en Linux
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     adb \
@@ -12,32 +15,26 @@ RUN apt-get update && apt-get install -y \
 # Configurar directorio de trabajo
 WORKDIR /app
 
-# Instalar dependencias de Python (Añadimos Flask explícitamente)
+# Instalar dependencias de Python
 COPY requirements.txt .
+# Modificamos requirements si hace falta
 RUN pip install --no-cache-dir -r requirements.txt Flask
 
 # Copiar el código del proyecto
 COPY . .
 
-# Exponer el puerto de la API (5000)
-# Esto permite que n8n u otros servicios externos se comuniquen con el bot de forma segura.
-EXPOSE 5000
+# Dar permisos al script de entrada (si lo usamos)
+# RUN chmod +x entrypoint.sh
 
-# Crear script de inicio para PulseAudio (Puerto Virtual en Linux)
+# Crear script de inicio para PulseAudio (Cable Virtual en Linux)
 RUN echo '#!/bin/bash\n\
-# Iniciar PulseAudio en modo daemon\n\
+# Iniciar PulseAudio en modo demonio (system-wide o de usuario)\n\
 pulseaudio -D --exit-idle-time=-1\n\
-# Crear el sumidero nulo de audio (el cable virtual)\n\
+# Crear un modulo de sumidero virtual (nuestro "Virtual Cable")\n\
 pactl load-module module-null-sink sink_name=VirtualMic sink_properties=device.description="VirtualMic"\n\
 pactl set-default-sink VirtualMic\n\
-# Intentar conectar automáticamente con el contenedor de Android antes de iniciar la API\n\
-if [ -n "$ADB_SERIAL" ]; then\n\
-  # Esperar un poco a que el contenedor de Android esté listo\n\
-  sleep 5\n\
-  # Conectar por ADB pasándole el serial definido en el entorno (ej. android:5555)\n\
-  adb connect $ADB_SERIAL\n\
-fi\n\
-# Iniciar la API del Bot en Python (Flask)\n\
-exec python app.py "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+# Iniciar la aplicación o mantener vivo\n\
+exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
 
 ENTRYPOINT ["/entrypoint.sh"]
+CMD ["tail", "-f", "/dev/null"]
