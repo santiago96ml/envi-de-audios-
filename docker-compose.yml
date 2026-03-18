@@ -28,6 +28,6 @@ services:
       - USE_ANDROID=true
     depends_on:
       - android
-
+    command: python app.py
 volumes:
   redroid_data:
