@@ -1,26 +1,8 @@
 version: "3"
 
 services:
-  # 1. n8n - Plataforma de Automatización
-  n8n:
-    image: docker.n8n.io/n8nio/n8n
-    restart: always
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_HOST=${SUBDOMAIN:-localhost}
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - NODE_ENV=production
-      - WEBHOOK_URL=http://${SUBDOMAIN:-localhost}:5678/
-      - GENERIC_TIMEZONE=America/Argentina/Buenos_Aires
-    volumes:
-      - n8n_data:/home/node/.n8n
-    depends_on:
-      - linkedin-bot
-
-  # 2. redroid - Android 12 en Docker (Requiere módulos kernel cargados en el host VPS)
-  redroid:
+  # 1. EL TELÉFONO (ANDROID 12)
+  android:
     image: redroid/redroid:12.0.0-latest
     restart: always
     privileged: true
@@ -34,22 +16,18 @@ services:
     volumes:
       - redroid_data:/data
 
-  # 3. Nuestro Bot en Python con PulseAudio
-  linkedin-bot:
+  # 2. EL CEREBRO DE PYTHON (NUESTRA API)
+  bot:
     build: .
     restart: always
     privileged: true
     ports:
-      - "5000:5000" # Por si levantamos una mini API Flask para n8n después
+      - "5000:5000"
     environment:
-      - ADB_SERIAL=redroid:5555
+      - ADB_SERIAL=android:5555
       - USE_ANDROID=true
-    volumes:
-      - .:/app
     depends_on:
-      - redroid
-    command: tail -f /dev/null # Mantiene vivo el contenedor para ejecutar scripts vía n8n (docker exec)
+      - android
 
 volumes:
-  n8n_data:
   redroid_data:
