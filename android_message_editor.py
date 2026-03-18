@@ -93,21 +93,39 @@ class AndroidMessageEditor:
                                 print(f"✅ Chat encontrado en la lista rápida.")
                                 return True
 
-        # 4. Fallback: Si no lo encuentra en el chat (no hay historial), usa el Deep Link completo
+        # 4. Fallback: Si no lo encuentra en el chat por heurística, usa el Deep Link completo
         if url:
-            print(f"🌐 Fallback: Contacto nuevo. Abriendo la URL nativamente -> {url}")
+            print(f"🌐 Fallback: Abriendo la URL directamente en el perfil nativo de LinkedIn -> {url}")
             self.device.shell(f"am start -a android.intent.action.VIEW -d '{url}' com.linkedin.android")
             time.sleep(6)
-            msg_btn = self.device(textMatches="(?i)Mensaje|Message")
+            
+            # Buscar el botón de Mensaje principal
+            msg_btn = self.device(textMatches="(?i)Mensaje|Message", className="android.widget.Button")
+            
             if msg_btn.exists:
                 msg_btn.click()
                 time.sleep(3)
+                print("✅ Entrando al chat desde el botón del perfil.")
                 return True
             else:
-                print("⚠️ Botón 'Mensaje' no encontrado en el perfil.")
+                # A veces el botón está bajo el menú "Más" o "More"
+                print("⚠️ Botón 'Mensaje' oculto. Buscando en el menú 'Más...'")
+                more_btn = self.device(textMatches="(?i)Más|More", className="android.widget.Button")
+                if more_btn.exists:
+                    more_btn.click()
+                    time.sleep(1.5)
+                    # En el menú desplegable suele decir "Enviar mensaje" en lugar de solo "Mensaje"
+                    msg_menu_btn = self.device(textMatches="(?i).*Mensaje.*|.*Message.*")
+                    if msg_menu_btn.exists:
+                        msg_menu_btn.click()
+                        time.sleep(3)
+                        print("✅ Entrando al chat desde el menú secundario.")
+                        return True
+                
+                print("❌ No se pudo encontrar una forma de enviarle mensaje desde su perfil.")
                 return False
 
-        print("⚠️ No se pudo asegurar la navegación al chat. El sistema intentará interactuar de todos modos en la pantalla actual.")
+        print("⚠️ No se pudo asegurar la navegación al chat. El sistema intentará interactuar de todos modos.")
         return False
 
 
