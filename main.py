@@ -195,6 +195,13 @@ async def run_send_voice(audio_path: str, recipient: str = None, conversation_ur
     print("-" * 60)
 
     if config.USE_ANDROID:
+        # Navegación inteligente (Suspenso) opcional si se pasa el contacto/URL
+        if recipient or conversation_url:
+            from android_message_editor import AndroidMessageEditor
+            navigator = AndroidMessageEditor()
+            if navigator.connect():
+                navigator.navigate_to_chat(conversation_url or recipient)
+                
         injector = AndroidVoiceInjector()
         result = injector.send_voice_message(str(processed_wav))
     else:

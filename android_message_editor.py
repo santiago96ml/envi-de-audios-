@@ -22,59 +22,94 @@ class AndroidMessageEditor:
             return False
 
     def navigate_to_chat(self, recipient_or_url):
-        """Abre la conversación usando Intent Action VIEW (deep link) o búsqueda simple."""
+        """
+        Navega al chat de manera inteligente manteniendo el modo 'suspenso' de la app.
+        Verifica si ya estamos en un chat y no reinicia la aplicación innecesariamente.
+        """
         if not self.device:
-            return
+            self.connect()
+        
+        url = None
+        search_name = recipient_or_url
         
         if recipient_or_url.startswith("http"):
-            print(f"🔗 Abriendo enlace directamente en Android: {recipient_or_url}")
-            # Ejecutamos el intent de visualización manejado por LinkedIn
-            self.device.shell(f"am start -a android.intent.action.VIEW -d '{recipient_or_url}' com.linkedin.android")
-            time.sleep(6) # Darle tiempo a cargar la UI
-            
-            # Si estamos en un perfil en lugar de un chat directo, buscar el botón "Mensaje"
-            msg_btn = self.device(textMatches="(?i)Mensaje|Message")
-            if msg_btn.exists:
-                print("   Clickeando botón 'Mensaje' en el perfil...")
-                msg_btn.click()
-                time.sleep(3)
-        else:
-            print(f"🔍 Buscando contacto por nombre '{recipient_or_url}' en Mensajes...")
-            # Abrimos o traemos a frente LinkedIn
-            self.device.app_start("com.linkedin.android")
-            time.sleep(4)
-            
-            # Buscar la pestaña de mensajes
+            url = recipient_or_url
+            try:
+                # Extraer nombre del URL (heurística)
+                # ej: linkedin.com/in/santiago-meneguzzi-123/ -> "Santiago Meneguzzi"
+                parts = url.split("/in/")[1].strip("/").split("-")
+                parts = [p.capitalize() for p in parts if not p.isdigit() and len(p) > 1]
+                search_name = " ".join(parts)
+            except:
+                pass
+
+        print(f"🧠 Deducido nombre para búsqueda en chat: '{search_name}'")
+
+        # Asegurar que la app está abierta y al frente (esto NO la reinicia si ya está abierta)
+        self.device.app_start("com.linkedin.android")
+        time.sleep(2)
+
+        # 1. ¿Estamos en un chat actualmente?
+        chat_title = self.device(resourceId="com.linkedin.android:id/messaging_thread_title")
+        if chat_title.exists:
+            current_chat = chat_title.get_text()
+            # Si estamos en el chat correcto, ¡no hacemos nada más!
+            if search_name and search_name.lower() in current_chat.lower():
+                print(f"✅ Ya estamos en el chat correcto: {current_chat}. Modo suspenso efectivo.")
+                return True
+            else:
+                print(f"🔙 Estamos en un chat distinto ({current_chat}). Volviendo a la lista de mensajes...")
+                self.device.press("back")
+                time.sleep(1)
+
+        # 2. Buscar en la barra de mensajes
+        search_box = self.device(textMatches="(?i)Buscar mensajes|Search messages")
+        if not search_box.exists:
+            # Ir a la pestaña de mensajes desde el home
             msg_tab = self.device(contentDescriptionMatches="(?i).*Mensajes.*|.*Messaging.*")
             if msg_tab.exists:
                 msg_tab.click()
+                time.sleep(2)
+                search_box = self.device(textMatches="(?i)Buscar mensajes|Search messages")
+
+        # 3. Intentar búsqueda si encontramos la barra
+        if search_box.exists and search_name:
+            search_box.click()
+            time.sleep(1)
+            search_input = self.device(className="android.widget.EditText")
+            if search_input.exists:
+                search_input.set_text(search_name)
+                print(f"🔍 Buscando '{search_name}' en el historial de chats...")
                 time.sleep(3)
-            
-            # Clicar en la barra de búsqueda superior
-            search_box = self.device(textMatches="(?i)Buscar mensajes|Search messages")
-            if search_box.exists:
-                search_box.click()
-                time.sleep(1)
                 
-                # Escribir el nombre
-                search_input = self.device(className="android.widget.EditText")
-                if search_input.exists:
-                    search_input.set_text(recipient_or_url)
-                    print("   Esperando resultados...")
-                    time.sleep(3)
-                    
-                    # Clicar el primer resultado que contenga el nombre buscado
-                    result = self.device(textContains=recipient_or_url)
-                    if result.exists:
-                        # Aseguramos de no clicar la propia barra de búsqueda
-                        for match in result:
-                            if match.info['className'] != "android.widget.EditText":
-                                match.click()
-                                time.sleep(3)
-                                print(f"✅ Conversación con '{recipient_or_url}' abierta.")
-                                return
-                    else:
-                        print(f"⚠️ No se encontró la conversación para: {recipient_or_url}")
+                # Clicar el primer resultado que coincida
+                result = self.device(textContains=search_name)
+                if result.exists:
+                    for match in result:
+                        if match.info['className'] != "android.widget.EditText":
+                            match.click()
+                            time.sleep(3)
+                            if self.device(resourceId="com.linkedin.android:id/messaging_thread_title").exists:
+                                print(f"✅ Chat encontrado en la lista rápida.")
+                                return True
+
+        # 4. Fallback: Si no lo encuentra en el chat (no hay historial), usa el Deep Link completo
+        if url:
+            print(f"🌐 Fallback: Contacto nuevo. Abriendo la URL nativamente -> {url}")
+            self.device.shell(f"am start -a android.intent.action.VIEW -d '{url}' com.linkedin.android")
+            time.sleep(6)
+            msg_btn = self.device(textMatches="(?i)Mensaje|Message")
+            if msg_btn.exists:
+                msg_btn.click()
+                time.sleep(3)
+                return True
+            else:
+                print("⚠️ Botón 'Mensaje' no encontrado en el perfil.")
+                return False
+
+        print("⚠️ No se pudo asegurar la navegación al chat. El sistema intentará interactuar de todos modos en la pantalla actual.")
+        return False
+
 
     def edit_message(self, old_text, new_text):
         """
