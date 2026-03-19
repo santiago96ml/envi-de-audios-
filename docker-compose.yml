@@ -1,22 +1,7 @@
 version: "3"
 
 services:
-  # 1. EL TELÉFONO (ANDROID 12)
-  android:
-    image: redroid/redroid:12.0.0-latest
-    restart: always
-    privileged: true
-    ports:
-      - "5555:5555"
-    command:
-      - androidboot.use_memfd=1
-      - androidboot.redroid_width=720
-      - androidboot.redroid_height=1280
-      - androidboot.redroid_fps=30
-    volumes:
-      - redroid_data:/data
-
-  # 2. EL CEREBRO DE PYTHON (NUESTRA API)
+  # CEREBRO DE PYTHON (NUESTRA API Y CHROMIUM)
   bot:
     build: .
     restart: always
@@ -24,10 +9,12 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - ADB_SERIAL=android:5555
-      - USE_ANDROID=true
-    depends_on:
-      - android
+      # Ya no usamos Android
+      - USE_ANDROID=false
+    volumes:
+      # Este volumen mantendrá VIVA la sesión de Chrome de LinkedIn, incluso si el bot se reinicia
+      - chrome_data:/app/chrome_profile
     command: python app.py
+
 volumes:
-  redroid_data:
+  chrome_data:
