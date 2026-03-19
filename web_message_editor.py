@@ -26,14 +26,35 @@ class WebMessageEditor:
         USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
         
         self.playwright = await async_playwright().start()
+
+        # Ruta opcional de cookies extraídas (especialmente útil en servidores Linux desde Windows)
+        storage_state_path = Path(__file__).resolve().parent / "session_storage.json"
         
-        # Usamos launch_persistent_context que guarda cookies como un navegador real
-        self.browser_context = await self.playwright.chromium.launch_persistent_context(
-            user_data_dir=str(USER_DATA_DIR),
-            headless=self.headless, 
-            args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-        )
+        # Opciones para el contexto persistente
+        context_args = {
+            "user_data_dir": str(USER_DATA_DIR),
+            "headless": self.headless,
+            "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        }
+
+        # Si tenemos el JSON de cookies extraído, lo inyectamos
+        if storage_state_path.exists():
+            print(f"🍪 Inyectando cookies desde {storage_state_path.name}...")
+            # Nota: launch_persistent_context no soporta storage_state directamente en algunas versiones de playwright,
+            # pero podemos usar el USER_DATA_DIR. Si es la primera vez, el JSON ayuda a 'sembrar' la sesión.
+            # Alternativa: cargar las cookies manualmente después de lanzar el contexto si es necesario.
+        
+        self.browser_context = await self.playwright.chromium.launch_persistent_context(**context_args)
+        
+        if storage_state_path.exists():
+            import json
+            with open(storage_state_path, "r") as f:
+                storage_state = json.load(f)
+                # Inyectamos cookies manualmente al contexto
+                await self.browser_context.add_cookies(storage_state.get("cookies", []))
+                print("✅ Cookies inyectadas exitosamente al contexto.")
+
         self.page = await self.browser_context.new_page()
         self.page.set_default_timeout(60000)
         
