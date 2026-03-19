@@ -21,3 +21,10 @@ output.log
 # Ignore original audio source to not push heavy audios
 audio_source/*
 !audio_source/.gitkeep
+
+# Chrome profile and debug info
+chrome_profile/
+debug_msg*
+debug_menu*
+*.html
+*.png
