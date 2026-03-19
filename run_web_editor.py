@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import sys
 from web_message_editor import WebMessageEditor
 
 async def main():
@@ -7,9 +8,12 @@ async def main():
     parser.add_argument("--contact", required=True, help="URL del chat o nombre del contacto")
     parser.add_argument("--old", required=True, help="Texto original a buscar")
     parser.add_argument("--new", required=True, help="Nuevo texto para reemplazar")
+    parser.add_argument("--visual", action="store_true", help="Abrir el navegador físicamente (no headless)")
     args = parser.parse_args()
 
-    editor = WebMessageEditor()
+    # Si se pasa --visual, headless es False
+    editor = WebMessageEditor(headless=not args.visual)
+    
     success = await editor.run(
         contact=args.contact,
         old_msg=args.old,
@@ -18,7 +22,7 @@ async def main():
     
     if not success:
         print("\n❌ Error: La edición web falló.")
-        exit(1)
+        sys.exit(1)
         
     print("\n✅ Proceso de edición finalizado con éxito.")
 

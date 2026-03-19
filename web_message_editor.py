@@ -15,13 +15,14 @@ from playwright.async_api import async_playwright
 USER_DATA_DIR = Path(__file__).resolve().parent / "chrome_profile"
 
 class WebMessageEditor:
-    def __init__(self):
+    def __init__(self, headless: bool = True):
         self.playwright = None
         self.browser_context = None
         self.page = None
+        self.headless = headless
 
     async def init_browser(self):
-        print("🚀 Iniciando Chromium con sesión persistente...")
+        print(f"🚀 Iniciando Chromium (Headless={self.headless}) con sesión persistente...")
         USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
         
         self.playwright = await async_playwright().start()
@@ -29,7 +30,7 @@ class WebMessageEditor:
         # Usamos launch_persistent_context que guarda cookies como un navegador real
         self.browser_context = await self.playwright.chromium.launch_persistent_context(
             user_data_dir=str(USER_DATA_DIR),
-            headless=True, # En producción correrá en background
+            headless=self.headless, 
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
         )
@@ -162,9 +163,17 @@ class WebMessageEditor:
             await self.init_browser()
             
             if not await self.is_logged_in():
-                print("❌ NO SE HA INICIADO SESIÓN. Tu volumen de cookies está vacío.")
-                print("Por favor, levanta el contenedor sin headless una vez o usa --login para poner las credenciales.")
-                return False
+                if self.headless:
+                    print("❌ NO SE HA INICIADO SESIÓN. Tu volumen de cookies está vacío.")
+                    print("Por favor, ejecuta el script con --visual una vez para poner las credenciales.")
+                    return False
+                else:
+                    print("⚠️ No se detectó sesión activa. POR FAVOR INICIA SESIÓN EN LA VENTANA ABIERTA.")
+                    print("El script esperará a que estés en el Feed o Mensajería para continuar...")
+                    # Esperar hasta que estemos en LinkedIn logueados (buscando el feed o mensajería)
+                    while not await self.is_logged_in():
+                        await asyncio.sleep(5)
+                    print("✅ Sesión detectada. Continuando...")
                 
             await self.navigate_to_chat(contact)
             success = await self.edit_message(old_msg, new_msg)
