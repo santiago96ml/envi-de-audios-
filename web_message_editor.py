@@ -106,14 +106,31 @@ class WebMessageEditor:
             print("❌ No se encontró el mensaje original en el chat.")
             return False
             
-        print("✅ Mensaje encontrado. Procediendo a editar (espera humana)...")
+        # Hover sobre la burbuja del mensaje para que aparezcan las acciones (los 3 puntitos)
+        bubble = await target_message.query_selector('.msg-s-event-listitem__message-bubble')
+        if bubble:
+            await bubble.hover()
+        else:
+            await target_message.hover()
+            
+        await self.page.wait_for_timeout(2000) # Pausa humanizada un poco más larga
         
-        # Hover sobre el mensaje para que aparezcan las acciones (los 3 puntitos)
-        await target_message.hover()
-        await self.page.wait_for_timeout(1000) # Pausa humanizada
+        # Clic en "Más opciones" (3 puntitos) - Selector específico encontrado en debug
+        more_options_btn = await target_message.query_selector('.msg-s-event-listitem__options-trigger, button[aria-label*="Opciones"], button[aria-label*="Options"]')
         
-        # Clic en "Más opciones" (3 puntitos)
-        more_options_btn = await target_message.query_selector('button[aria-label*="Opciones"], button[aria-label*="Options"]')
+        if not more_options_btn:
+            # Plan B: Buscar por el icono dentro del botón
+            more_options_btn = await target_message.query_selector('li.msg-s-message-options__option-item button, .msg-s-message-options button')
+
+        if not more_options_btn:
+            print("❌ No se encontró el botón de los 3 puntitos. Guardando debug info...")
+            # DEBUG: Guardar HTML del mensaje y captura de pantalla
+            html_msg = await target_message.inner_html()
+            with open("debug_msg_fail.html", "w", encoding="utf-8") as f:
+                f.write(html_msg)
+            await self.page.screenshot(path="debug_msg_fail.png")
+            return False
+
         if more_options_btn:
             await more_options_btn.click()
             await self.page.wait_for_timeout(1000)
@@ -121,18 +138,38 @@ class WebMessageEditor:
             print("❌ No se encontró el botón de los 3 puntitos en el mensaje.")
             return False
             
-        # Seleccionar "Editar"
-        edit_btn = await self.page.query_selector('div.artdeco-dropdown__content >> text="Editar", div.artdeco-dropdown__content >> text="Edit"')
+        # Seleccionar "Editar" - Probamos varios selectores de texto y roles
+        edit_btn = await self.page.query_selector('text="Editar", text="Edit", [role="menuitem"] >> text="Editar", [role="menuitem"] >> text="Edit"')
+        if not edit_btn:
+            # Plan B: Buscar por icono o clases comunes
+            edit_btn = await self.page.query_selector('.msg-s-message-option-bar__edit-btn, .artdeco-dropdown__item:has-text("Edit"), .artdeco-dropdown__item:has-text("Editar")')
+
+        if not edit_btn:
+            print("❌ No se encontró la opción de Editar en el menú desplegable. Guardando debug...")
+            # DEBUG: Guardar HTML del dropdown (está en una capa superior usualmente)
+            menu_content = await self.page.query_selector('.artdeco-dropdown__content--is-open')
+            if menu_content:
+                html_menu = await menu_content.inner_html()
+                with open("debug_menu_fail.html", "w", encoding="utf-8") as f:
+                    f.write(html_menu)
+            await self.page.screenshot(path="debug_menu_fail.png")
+            return False
+
         if edit_btn:
             await edit_btn.click()
             await self.page.wait_for_timeout(1000)
-        else:
-            print("❌ No se encontró la opción de Editar en el menú desplegable.")
-            return False
             
-        # Ahora el editor de texto reemplazó al globo de mensaje.
-        editor = await target_message.query_selector('div[role="textbox"]')
+        # Ahora el editor de texto reemplazó al globo de mensaje, o apareció en la conversación.
+        # Esperamos un poco a que el DOM cambie
+        await self.page.wait_for_timeout(2000)
+        
+        editor = await target_message.query_selector('div[role="textbox"], .msg-form__contenteditable, [contenteditable="true"]')
+        if not editor:
+            # Plan B: Buscar en toda la página el editor activo
+            editor = await self.page.query_selector('.msg-form__contenteditable[contenteditable="true"]')
+
         if editor:
+            print("⌨️ Campo de texto encontrado. Editando...")
             # Borrar texto viejo con Ctrl+A / Backspace simula humano
             await editor.click()
             await self.page.keyboard.press("Control+A")
@@ -140,18 +177,22 @@ class WebMessageEditor:
             await self.page.keyboard.press("Backspace")
             
             # Escribir el nuevo texto
-            await editor.type(new_text, delay=50) # Teclado humano
+            await editor.type(new_text, delay=70) # Teclado humano
             await self.page.wait_for_timeout(1000)
             
-            # Guardar/Enviar edición (suele haber un botón "Guardar" o se envía con Enter)
+            # Guardar/Enviar edición
+            # A veces el botón GUARDAR está dentro del li, a veces es global en el form
             save_btn = await target_message.query_selector('button:has-text("Guardar"), button:has-text("Save")')
+            if not save_btn:
+                save_btn = await self.page.query_selector('.msg-form__send-button, button:has-text("Guardar"), button:has-text("Save")')
+
             if save_btn:
                 await save_btn.click()
             else:
                 await self.page.keyboard.press("Enter")
                 
             print("✅ ¡Edición aplicada con éxito!")
-            await self.page.wait_for_timeout(2000)
+            await self.page.wait_for_timeout(3000)
             return True
         else:
             print("❌ No se activó el campo de texto para editar el mensaje.")
