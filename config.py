@@ -39,6 +39,21 @@ LINKEDIN_EMAIL = os.environ.get("LINKEDIN_EMAIL", "")
 LINKEDIN_PASSWORD = os.environ.get("LINKEDIN_PASSWORD", "")
 
 # ==============================================================================
+# REDIS (Cola de Tareas y Almacén de Sesiones)
+# ==============================================================================
+
+# URL de conexión a Redis. En Docker usa el nombre del servicio: redis://redis:6379
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+
+# Prefijos de claves en Redis
+REDIS_TASK_QUEUE     = "linkedin:tasks"
+REDIS_TASK_PREFIX    = "linkedin:task:"
+REDIS_SESSION_PREFIX = "linkedin:sessions:"
+
+# TTL en segundos para los resultados de tareas (7 días)
+TASK_RESULT_TTL_SECONDS = 60 * 60 * 24 * 7
+
+# ==============================================================================
 # URLs DE LINKEDIN
 # ==============================================================================
 

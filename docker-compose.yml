@@ -1,20 +1,55 @@
-version: "3"
+version: "3.9"
 
 services:
-  # CEREBRO DE PYTHON (NUESTRA API Y CHROMIUM)
-  bot:
+  # ─── REDIS: Cola de tareas y almacén de sesiones ─────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: always
+    # Sin exposición de puertos al exterior por seguridad
+    # Solo accesible desde los contenedores internos de Docker
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ─── API FastAPI: Recepciona peticiones y las encola ─────────────────────
+  api:
     build: .
     restart: always
-    privileged: true
     ports:
       - "5000:5000"
     environment:
-      # Ya no usamos Android
-      - USE_ANDROID=false
+      - API_TOKEN=${API_TOKEN:-stark_secure_token_2024_linkedin_bot}
+      - REDIS_URL=redis://redis:6379
+      - PYTHONUNBUFFERED=1
+    command: uvicorn api:app --host 0.0.0.0 --port 5000 --workers 1
+    depends_on:
+      redis:
+        condition: service_healthy
+    # La API es ligera: <100MB RAM
+    mem_limit: 256m
+
+  # ─── WORKER Playwright: Un solo Chromium, múltiples contextos ────────────
+  worker:
+    build: .
+    restart: always
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - PYTHONUNBUFFERED=1
     volumes:
-      # Este volumen mantendrá VIVA la sesión de Chrome de LinkedIn, incluso si el bot se reinicia
+      # Persistencia del perfil de Chromium (caché, datos de perfil)
       - chrome_data:/app/chrome_profile
-    command: python app.py
+      # Montar session_data para acceder al JSON de cookies en la primera migración
+      - ./session_data:/app/session_data:ro
+    command: python worker.py
+    depends_on:
+      redis:
+        condition: service_healthy
+    # Base ~250MB (Chromium) + ~50MB por contexto activo
+    mem_limit: 1g
+    # Necesario para Chromium en algunos kernels de Linux
+    shm_size: "256mb"
 
 volumes:
   chrome_data:

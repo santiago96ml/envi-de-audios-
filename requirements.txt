@@ -1,3 +1,6 @@
-Flask>=3.0.0
-# Solo necesitamos Playwright ahora para editar mensajes en la web
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+redis>=5.0.0
 playwright>=1.40.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
