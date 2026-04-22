@@ -11,7 +11,9 @@ env.bak/
 venv.bak/
 
 # Project specifics
-session_data/
+# session_data/ — NO ignorar, el worker necesita linkedin_state.json en el contenedor
+session_data/*.zip
+session_data/*.bak
 audio_processed/
 debug_output.txt
 error_details.json
